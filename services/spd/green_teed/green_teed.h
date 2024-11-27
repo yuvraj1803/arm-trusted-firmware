@@ -27,25 +27,15 @@ typedef struct{
 } green_tee_cpu_context_t;
 
 typedef struct green_tee_vector_table{
-    uint64_t current_el_sp0_sync;
-    uint64_t current_el_sp0_irq;
-    uint64_t current_el_sp0_fiq;
-    uint64_t current_el_sp0_serror;
-
-    uint64_t current_el_spx_sync;
-    uint64_t current_el_spx_irq;
-    uint64_t current_el_spx_fiq;
-    uint64_t current_el_spx_serror;
-
-    uint64_t lower_el_64_sync;
-    uint64_t lower_el_64_irq;
-    uint64_t lower_el_64_fiq;
-    uint64_t lower_el_64_serror;
-
-    uint64_t lower_el_32_sync;
-    uint64_t lower_el_32_irq;
-    uint64_t lower_el_32_fiq;
-    uint64_t lower_el_32_serror;
+   	uint64_t yield_smc_entry;
+	uint64_t fast_smc_entry;
+	uint64_t cpu_on_entry;
+	uint64_t cpu_off_entry;
+	uint64_t cpu_resume_entry;
+	uint64_t cpu_suspend_entry;
+	uint64_t fiq_entry;
+	uint64_t system_off_entry;
+	uint64_t system_reset_entry;
 
 } green_tee_vector_table_t;
 

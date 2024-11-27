@@ -18,7 +18,6 @@
 
 green_tee_cpu_context_t cpu_context_data;
 green_tee_vector_table_t vector_table;
-uint64_t green_tee_smc_handler;
 
 int32_t green_teed_synchronous_sp_entry(green_tee_cpu_context_t* context){
 	cm_el1_sysregs_context_restore(SECURE);
@@ -89,28 +88,20 @@ setup_fail:
 	return 1;
 }
 
-void green_tee_init_vector_table(uint64_t vbar_el1){
+void green_tee_init_vector_table(uint64_t vectors){
 
-	vector_table.current_el_sp0_sync	 = vbar_el1 + 0x0;
-	vector_table.current_el_sp0_irq 	 = vbar_el1 + 0x80;
-	vector_table.current_el_sp0_fiq		 = vbar_el1 + 0x100;
-	vector_table.current_el_sp0_serror   = vbar_el1 + 0x180;
+	green_tee_vector_table_t* table = (green_tee_vector_table_t*) vectors;
 
-	vector_table.current_el_spx_sync 	 = vbar_el1 + 0x200;
-	vector_table.current_el_spx_irq 	 = vbar_el1 + 0x280;
-	vector_table.current_el_spx_fiq 	 = vbar_el1 + 0x300;
-	vector_table.current_el_spx_serror   = vbar_el1 + 0x380;
-
-	vector_table.lower_el_64_sync	 = vbar_el1 + 0x400;
-	vector_table.lower_el_64_irq	 = vbar_el1 + 0x480;
-	vector_table.lower_el_64_fiq	 = vbar_el1 + 0x500;
-	vector_table.lower_el_64_serror	 = vbar_el1 + 0x580;
-
-	vector_table.lower_el_32_sync	 = vbar_el1 + 0x600;
-	vector_table.lower_el_32_irq 	 = vbar_el1 + 0x680;
-	vector_table.lower_el_32_fiq	 = vbar_el1 + 0x700;
-	vector_table.lower_el_32_serror  = vbar_el1 + 0x780;
-
+	vector_table.cpu_off_entry = table->cpu_off_entry;
+	vector_table.cpu_on_entry = table->cpu_on_entry;
+	vector_table.cpu_resume_entry = table->cpu_resume_entry;
+	vector_table.cpu_suspend_entry = table->cpu_suspend_entry;
+	vector_table.fast_smc_entry = table->fast_smc_entry;
+	vector_table.fiq_entry = table->fiq_entry;
+	vector_table.system_off_entry = table->system_off_entry;
+	vector_table.system_reset_entry = table->system_reset_entry;
+	vector_table.yield_smc_entry = table->yield_smc_entry;
+	
 }
 
 static uint64_t green_teed_sel1_interrupt_handler(uint32_t id, uint32_t flags, void* handle, void* cookie){
@@ -150,7 +141,7 @@ uintptr_t green_teed_smc_handler(uint32_t smc_fid, u_register_t x1, u_register_t
 			case GREEN_TEE_SMC_LINUX_DECRYPT:
 
 				cm_el1_sysregs_context_save(NON_SECURE);
-				cm_set_elr_el3(SECURE, green_tee_smc_handler);
+				cm_set_elr_el3(SECURE, vector_table.yield_smc_entry);
 
 				cm_el1_sysregs_context_restore(SECURE);
 				cm_set_next_eret_context(SECURE);
@@ -171,7 +162,6 @@ uintptr_t green_teed_smc_handler(uint32_t smc_fid, u_register_t x1, u_register_t
 				if(x1 == 0) panic();	// S-EL1 has to return its VBAR_EL1. Otherwise, something has gone wrong...
 
 				green_tee_init_vector_table(x1);
-				green_tee_smc_handler = x2;
 
 				int ret = green_teed_register_interrupt_handler();
 				if(ret < 0) panic();
