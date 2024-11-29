@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "context.h": "c",
+        "context_mgmt.h": "c",
+        "bl_common.h": "c",
+        "bl31.h": "c"
+    }
+}

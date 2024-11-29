@@ -1,6 +1,4 @@
-#include "green_teed.h"
-#include "green_tee_smc.h"
-#include "green_tee.h"
+
 #include <common/runtime_svc.h>
 #include <common/debug.h>
 #include <bl31/bl31.h>
@@ -11,13 +9,50 @@
 #include <lib/el3_runtime/context_mgmt.h>
 #include <context.h>
 #include <lib/smccc.h>
+#include <lib/utils.h>
 
 #include <stdint.h>
 
+#include "green_teed.h"
+#include "green_tee_smc.h"
 
-
-green_tee_cpu_context_t cpu_context_data;
+green_tee_cpu_context_t cpu_context_data[GREEN_TEED_CORE_COUNT];
 green_tee_vector_table_t vector_table;
+
+
+void green_teed_init_ep_state(struct entry_point_info *green_tee_entry_point,
+		        uint64_t pc, uint64_t arg0,
+				uint64_t arg1, uint64_t arg2, uint64_t arg3,
+				green_tee_cpu_context_t *green_tee_ctx)
+{
+	uint32_t ep_attr;
+
+	assert(green_tee_ctx);
+	assert(green_tee_entry_point);
+	assert(pc);
+
+	green_tee_ctx->mpidr_el1 = read_mpidr_el1();
+	green_tee_ctx->state = GREEN_TEE_STATE_OFF;
+
+	cm_set_context(&green_tee_ctx->cpu_context, SECURE);
+
+	ep_attr = SECURE | EP_ST_ENABLE;
+
+	if (read_sctlr_el3() & SCTLR_EE_BIT)
+		ep_attr |= EP_EE_BIG;
+
+	SET_PARAM_HEAD(green_tee_entry_point, PARAM_EP, VERSION_1, ep_attr);
+	green_tee_entry_point->pc = pc;
+
+	green_tee_entry_point->spsr = SPSR_64(MODE_EL1, MODE_SP_ELX, DISABLE_ALL_EXCEPTIONS);
+
+	zeromem(&green_tee_entry_point->args, sizeof(green_tee_entry_point->args));
+	green_tee_entry_point->args.arg0 = arg0;
+	green_tee_entry_point->args.arg1 = arg1;
+	green_tee_entry_point->args.arg2 = arg2;
+	green_tee_entry_point->args.arg3 = arg3;
+}
+
 
 int32_t green_teed_synchronous_sp_entry(green_tee_cpu_context_t* context){
 	cm_el1_sysregs_context_restore(SECURE);
@@ -39,7 +74,8 @@ int32_t green_teed_synchronous_sp_exit(green_tee_cpu_context_t* context){
 
 int32_t green_teed_init(void){
 
-	green_tee_cpu_context_t* my_context = &cpu_context_data;
+	int linear_id = plat_my_core_pos();
+	green_tee_cpu_context_t* my_context = &cpu_context_data[linear_id];
 
 	if(!my_context) goto green_teed_init_fail;
 
@@ -59,6 +95,9 @@ green_teed_init_fail:
 
 int32_t green_teed_setup(void){
 
+	int linear_id = plat_my_core_pos();
+	green_tee_cpu_context_t* my_context = &cpu_context_data[linear_id];
+
 	entry_point_info_t* ep_info = bl31_plat_get_next_image_ep_info(SECURE);
 	if(!ep_info){
 		WARN("Green TEE Entry Point Information Unavailable. SMC will always return SMC_UKN\n");
@@ -74,11 +113,9 @@ int32_t green_teed_setup(void){
 		goto setup_fail;
 	}
 
-	cm_set_context(&cpu_context_data.cpu_context, SECURE);
-	cpu_context_data.mpidr_el1 = read_mpidr_el1();
-	SET_PARAM_HEAD(ep_info, PARAM_EP, VERSION_1, EP_SECURE | EP_EE_LITTLE | EP_ST_ENABLE);
-	ep_info->spsr = SPSR_64(MODE_EL1, MODE_SP_ELX, DISABLE_ALL_EXCEPTIONS);
-
+	green_teed_init_ep_state(ep_info, ep_info->pc,
+			0, 0, 0, 0,
+			my_context);
 
 	bl31_register_bl32_init(&green_teed_init);
 
@@ -122,8 +159,8 @@ uintptr_t green_teed_smc_handler(uint32_t smc_fid, u_register_t x1, u_register_t
 
 	// x1: address of exception vector table passed by S-EL1
 	// x2: address of SMC handler inside TEE
-
-	green_tee_cpu_context_t* cpu_context = &cpu_context_data;
+	int linear_id = plat_my_core_pos();
+	green_tee_cpu_context_t* cpu_context = &cpu_context_data[linear_id];
 
 	if(!cpu_context) {
 		panic();
@@ -163,11 +200,23 @@ uintptr_t green_teed_smc_handler(uint32_t smc_fid, u_register_t x1, u_register_t
 
 				green_tee_init_vector_table(x1);
 
+				cpu_context->state = GREEN_TEE_STATE_ON;
+
 				int ret = green_teed_register_interrupt_handler();
 				if(ret < 0) panic();
 
+				psci_register_spd_pm_hook(&green_teed_pm);
+
 				green_teed_synchronous_sp_exit(cpu_context);
+
 				break;
+			
+			case GREEN_TEE_SMC_PM_ACK:
+				
+				green_teed_synchronous_sp_exit(cpu_context);
+
+				break;
+
 			case GREEN_TEE_SMC_HANDLED:
 
 				cm_el1_sysregs_context_save(SECURE);
